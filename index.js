@@ -35,6 +35,7 @@ async function run() {
     const reviewsCollection = client.db('bistroBossDB').collection('reviews')
     const cardsCollection = client.db('bistroBossDB').collection('cards');
 
+
 /*====||====||====||====||====||
       JWT Releted API  
 ====||====||====||====||====||  
@@ -42,7 +43,7 @@ async function run() {
 
    app.post('/jwt', async(req, res)=>{
      const user = req.body;
-     const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {expiresIn: "1h"});
+     const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {expiresIn: "5h"});
      res.send({token})
    })
 
@@ -66,25 +67,88 @@ async function run() {
       res.send(result);
     })
 
+/*<==================================
+    Veryfi Token [Middle were]
 
+    [here we get ALL Users token which is Send by ALLUser Components] [**Now Have to verify the Tohen**]
+===================================>
+*/
+    const verifyToken = (req, res, next)=>{
+      console.log('inside verify token:',req.headers.authorization)
+      if(!req.headers.authorization){
+        return res.status(401).send({message: "Forbidden access"})
+      } 
+
+      const token= req.headers.authorization.split(' ')[1]
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET ,(err, decoded)=>{
+      if(err){
+        return res.status(401).send({message: "Forbidden access"})
+      }
+
+      req.decoded= decoded
+        next();
+    })
+    }
+
+    // Admin verification [Should verifay admin after Token verification ]
+
+    const verifyAdmin= async(req,res, next)=>{
+      const email = req.params.email;
+      const filter = {email: email}
+      const user = await userCollection.findOne(filter);
+      const isAdmin = user?.role === 'admin';
+      if(!isAdmin){
+        res.status(403).send({message: 'forbidden access'})
+      }
+      next();
+    }
+
+
+
+
+
+/*========================
+    User Releted Start 
+===========================
+*/
     // User releted API (GET Operation)
-    app.get('/user', async(req, res)=>{
+    app.get('/user',verifyToken, verifyAdmin, async(req, res)=>{
       const result = await userCollection.find().toArray()
       res.send(result)
     })
 
 
+    // Admin or not
+    app.get('/user/admin/:email', verifyToken, async(req, res)=>{
+       const email = req.params.email;
+       if(email !== req.decoded.email){
+        return res.status(403).send({message: "Unauthorized access"})
+       }
+       const query = {email: email}
+       const user = await userCollection.findOne(query);
+       let admin = false;
+       if(user){
+        admin = user?.role === 'admin'
+       }
+       res.send({admin, user})
+    })
+
+
     // User Releted Delete operation
-    app.delete('/user/:id', async(req, res)=>{
+    app.delete('/user/:id', verifyToken, verifyAdmin, async(req, res)=>{
        const id = req.params.id;
        const query= {_id: new ObjectId (id)}
        const result= await userCollection.deleteOne(query);
        res.send(result)
     })
 
+/*===================== 
+    User Releted End 
+=======================
+*/
 
     // Admin making (Patch operation)
-    app.patch('/user/admin/:id', async(req, res)=>{
+    app.patch('/user/admin/:id', verifyToken, verifyAdmin, async(req, res)=>{
       const id = req.params.id;
       const filter= {_id: new ObjectId(id)}
       const updatedDoc = {
@@ -123,7 +187,7 @@ async function run() {
 
 
     // Add to cart Get Operation
-    app.get('/carts', async(req,res)=>{
+    app.get('/carts',verifyToken, async(req,res)=>{
       const email = req.query.email;
       const query = {email: email};
       const result = await cardsCollection.find(query).toArray()
