@@ -3,6 +3,7 @@ const app = express();
 const cors = require('cors');
 require('dotenv').config()
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY)
 var jwt = require('jsonwebtoken');
 const port = process.env.port || 5000;
 
@@ -10,8 +11,6 @@ const port = process.env.port || 5000;
 // Middle were
 app.use(cors());
 app.use(express.json());
-
-
 
 
 
@@ -34,6 +33,7 @@ async function run() {
     const userCollection = client.db('bistroBossDB').collection('user')
     const reviewsCollection = client.db('bistroBossDB').collection('reviews')
     const cardsCollection = client.db('bistroBossDB').collection('cards');
+    const paymentsCollection = client.db('bistroBossDB').collection('payments');
 
 
 /*====||====||====||====||====||
@@ -93,7 +93,7 @@ async function run() {
     // Admin verification [Should verifay admin after Token verification ]
 
     const verifyAdmin= async(req,res, next)=>{
-      const email = req.params.email;
+      const email = req.decoded.email;
       const filter = {email: email}
       const user = await userCollection.findOne(filter);
       const isAdmin = user?.role === 'admin';
@@ -105,15 +105,14 @@ async function run() {
 
 
 
-
-
 /*========================
     User Releted Start 
 ===========================
 */
     // User releted API (GET Operation)
     app.get('/user',verifyToken, verifyAdmin, async(req, res)=>{
-      const result = await userCollection.find().toArray()
+      const result = await userCollection.find().toArray();
+      console.log(result)
       res.send(result)
     })
 
@@ -162,8 +161,17 @@ async function run() {
 
 
 
+/*++++++++++++++++++++++++++++++++
+       All About Menu[Start]
++++++++++++++++++++++++++++++++++*/
 
+   // Menu insurted Post
 
+   app.post('/menu',verifyToken,verifyAdmin, async(req, res)=>{
+    const menuItem = req.body;
+    const result = await menuCollection.insertOne(menuItem);
+    res.send(result);
+   })
 
 
     // AL menu get operation 
@@ -171,6 +179,52 @@ async function run() {
         const result = await menuCollection.find().toArray()
         res.send(result)
     })
+
+    // Single id (Get operation for update)[***Something is wrong] 
+
+     app.get('/menu/:id', async(req, res)=>{
+      const id = req.params.id;
+      const query = {_id: (id)}
+      const result = await menuCollection.findOne(query);
+      res.send(result);
+     })
+
+
+    //  Update [Patch operation]
+    app.patch('/menu/:id', async(req,res)=>{
+      const item = req.body;
+      const id = req.params.id;
+      const filter = {_id: new ObjectId(id)};
+      const updateDoc= {
+        $set:{
+          name: item.name,
+          category: item.category,
+          price: item.price,
+          recipe: item.recipe,
+          image: item.image
+        }
+      }
+      const result = await menuCollection.updateOne(filter, updateDoc);
+      res.send(result);
+
+    })
+
+
+    // Menu item delete
+    app.delete('/menu/:id',verifyToken,verifyAdmin, async(req, res)=>{
+      const id = req.params.id;
+      console.log(id)
+      const query = {_id: id};
+      const result = await menuCollection.deleteOne(query);
+      console.log(result)
+      res.send(result);
+    })
+
+/*++++++++++++++++++++++++++++++++
+       All About Menu[End]
++++++++++++++++++++++++++++++++++*/
+
+
 
     // AL reviews get operation 
     app.get('/reviews', async(req,res)=>{
@@ -180,8 +234,8 @@ async function run() {
 
     // Add to cart Post operation 
     app.post('/carts', async(req,res)=>{
-      const cartItem= req.body;
-      const result=  await cardsCollection.insertOne(cartItem);
+      const cartItem = req.body;
+      const result =  await cardsCollection.insertOne(cartItem);
       res.send(result);
     })
 
@@ -200,6 +254,54 @@ async function run() {
       const id = req.params.id;
       const query= {_id: new ObjectId(id)};
       const result = await cardsCollection.deleteOne(query);
+      res.send(result)
+    })
+
+/*///===///===///===///===///===///
+       Payment Things 
+///===///===///===///===///===///*/
+    app.post('/create-payment-intent', async(req,res)=>{
+      const {price}= req.body;
+      console.log(price)
+
+      const amount= parseInt(price * 100);
+      console.log('thgis ishowsds amount', amount)
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ['card']
+      })
+
+      res.send({
+        clientSecret: paymentIntent.client_secret
+      })
+    })
+
+
+    // Payment History/Info store
+    app.post('/payments', async (req, res)=>{
+      const PaymentInfo = req.body;
+      const PaymentResult= await paymentsCollection.insertOne(PaymentInfo);
+      console.log('payment infoooo', PaymentInfo)
+      
+      // Now delete each item in the cart
+      const query = {_id: {
+        $in: PaymentInfo.cartIds.map(id=> new ObjectId(id))
+      }}
+      const deleteResult = await cardsCollection.deleteMany(query)
+      
+
+      res.send({PaymentResult,deleteResult})
+    })
+
+    // Get payment History
+    app.get('/payment-history/:email', verifyToken, async (req,res)=>{
+      const query = {email: req.params.email};
+      if(req.params.email !== req.decoded.email){
+        return res.status(403).send({message: "Forbidden acces"})
+      }
+      const result = await paymentsCollection.find().toArray();
       res.send(result)
     })
 
