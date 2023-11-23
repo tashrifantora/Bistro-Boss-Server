@@ -305,6 +305,39 @@ async function run() {
       res.send(result)
     })
 
+    // stats or anyallitics
+    // Customer [**find keno dilam na ??**]
+    app.get('/admin-stats', verifyToken, verifyAdmin, async(req, res)=>{
+      const users = await userCollection.estimatedDocumentCount(); //All user
+      const menuItems = await menuCollection.estimatedDocumentCount() //All menu
+      const orders = await paymentsCollection.estimatedDocumentCount() //Who paid money only them
+
+      // not best way but easy
+     /*  const payment = await paymentsCollection.find().toArray();
+      console.log(payment)
+      const revenue= payment.reduce((total, payment)=> total + payment.price,0) */
+
+      const result = await paymentsCollection.aggregate([
+        {
+          $group:{
+            _id: null,
+            totalRevenue: {
+              $sum: '$price'
+            }
+          }
+        }
+      ]).toArray()
+      const revenue= result.length > 0 ? result[0].totalRevenue : 0;
+
+
+      res.send({
+        users,
+        menuItems,
+        orders,
+        revenue
+      })
+    })
+
 
 
 
